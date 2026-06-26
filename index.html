@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Treino JB">
+<title>Treino Adaptativo — Julio Balestrin</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  body{background:#0f0f0f;overscroll-behavior:none;-webkit-overflow-scrolling:touch}
+  input,button{font-family:'Inter',sans-serif}
+  ::-webkit-scrollbar{display:none}
+  @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;900&family=Inter:wght@400;500;600&display=swap');
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef, useReducer } = React;
+
+// ── STORAGE: localStorage para GitHub Pages ──────────────────────
+const KEY = 'treino_jb_gh_v1';
+function loadState() {
+  try {
+    const raw = localStorage.getItem(KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    p.sessions = (p.sessions||[]).map(s=>s.id?s:{...s,id:uid()});
+    return p;
+  } catch { return null; }
+}
+function saveState(s) {
+  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch {}
+}
+
+// ── UTILS ────────────────────────────────────────────────────────
+const uid = () => Math.random().toString(36).slice(2,8);
+const today = () => new Date().toISOString().slice(0,10);
+const fmtDate = iso => { if(!iso)return''; const[y,m,d]=iso.split('-'); return `${d}/${m}/${y}`; };
+const getN = s => { const m=(s||'').match(/(\d+[\.,]?\d*)/); return m?parseFloat(m[1].replace(',','.')):null; };
+
+const LINKS = {
+  'crucifixo':'https://www.youtube.com/results?search_query=crucifixo+musculação+execução',
+  'puxada frontal':'https://www.youtube.com/results?search_query=puxada+frontal+aberta+pronada+execução',
+  'desenvolvimento':'https://www.youtube.com/results?search_query=desenvolvimento+sentado+ombro+execução',
+  'tríceps corda':'https://www.youtube.com/results?search_query=tríceps+corda+execução',
+  'tríceps na polia':'https://www.youtube.com/results?search_query=tríceps+polia+execução',
+  'tríceps francês':'https://www.youtube.com/results?search_query=tríceps+francês+execução',
+  'rosca direta':'https://www.youtube.com/results?search_query=rosca+direta+barra+W+execução',
+  'prancha':'https://www.youtube.com/results?search_query=prancha+abdominal+execução',
+  'supino':'https://www.youtube.com/results?search_query=supino+reto+execução+musculação',
+  'remada':'https://www.youtube.com/results?search_query=remada+unilateral+halter+execução',
+  'elevação lateral':'https://www.youtube.com/results?search_query=elevação+lateral+execução',
+  'extensora':'https://www.youtube.com/results?search_query=cadeira+extensora+execução',
+  'adutora':'https://www.youtube.com/results?search_query=cadeira+adutora+execução',
+  'flexora':'https://www.youtube.com/results?search_query=mesa+flexora+execução',
+  'leg press':'https://www.youtube.com/results?search_query=leg+press+execução',
+  'panturrilha':'https://www.youtube.com/results?search_query=panturrilha+em+pé+execução',
+  'agachamento':'https://www.youtube.com/results?search_query=agachamento+execução+musculação',
+  'crunch':'https://www.youtube.com/results?search_query=abdominal+crunch+execução',
+};
+function getLink(name){
+  const n=name.toLowerCase();
+  for(const k in LINKS)if(n.includes(k))return LINKS[k];
+  return'https://www.youtube.com/results?search_query='+encodeURIComponent(name+' execução musculação');
+}
+
+// ── CORES ────────────────────────────────────────────────────────
+const C = {
+  bg:'#0f0f0f',surface:'#1a1a1a',s2:'#222',border:'#2e2e2e',border2:'#3a3a3a',
+  green:'#39d98a',gdim:'#1a3d2e',gtext:'#5af5a8',
+  yellow:'#f5c842',ydim:'#332e10',ytext:'#f5d96b',
+  blue:'#60a5fa',bdim:'#162035',btext:'#93c5fd',
+  red:'#f55a5a',rdim:'#3a1515',
+  text:'#f0f0f0',muted:'#777',dim:'#444',
+};
+
+// ── DADOS PADRÃO ─────────────────────────────────────────────────
+const mkCardio = () => ({feito:false,tipo:'',tempo:''});
+const DEFAULT_WEEKS = [
+  { num:1, dates:'22 a 28/06', cardioA:mkCardio(), cardioB:mkCardio(),
+    A:[
+      {id:'a11',name:'Crucifixo',sub:'halter / cabo / máquina',reps:'12–15 reps',series:3,carga:'Halteres azul',obs:'',doneSeries:0},
+      {id:'a12',name:'Puxada Frontal Aberta Pronada',sub:'',reps:'12–15 reps',series:3,carga:'30 kg',obs:'',doneSeries:0},
+      {id:'a13',name:'Desenvolvimento Sentado',sub:'halter / cabo / máquina',reps:'12–15 reps',series:3,carga:'Halteres azul',obs:'',doneSeries:0},
+      {id:'a14',name:'Tríceps Corda',sub:'polia',reps:'12–15 reps',series:3,carga:'20 kg',obs:'',doneSeries:0},
+      {id:'a15',name:'Rosca Direta',sub:'barra W ou corda',reps:'12–15 reps',series:3,carga:'3 kg cada lado',obs:'',doneSeries:0},
+      {id:'a16',name:'Abdominal Prancha',sub:'',reps:'30–45 seg',series:3,carga:'—',obs:'',doneSeries:0},
+    ],
+    B:[
+      {id:'b11',name:'Cadeira Extensora',sub:'',reps:'12–15 reps',series:3,carga:'25 kg',obs:'',doneSeries:0},
+      {id:'b12',name:'Mesa / Cadeira Flexora',sub:'',reps:'12–15 reps',series:3,carga:'5 kg',obs:'',doneSeries:0},
+      {id:'b13',name:'Leg Press',sub:'',reps:'12–15 reps',series:3,carga:'30 kg',obs:'',doneSeries:0},
+      {id:'b14',name:'Panturrilha em Pé',sub:'',reps:'12–15 reps',series:3,carga:'30 kg',obs:'',doneSeries:0},
+      {id:'b15',name:'Cadeira Adutora',sub:'polia',reps:'12–15 reps',series:3,carga:'5 kg',obs:'',doneSeries:0},
+    ]
+  },
+  { num:2, dates:'29/06 a 05/07', cardioA:mkCardio(), cardioB:mkCardio(),
+    A:[
+      {id:'a21',name:'Crucifixo',sub:'halter / cabo / máquina',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'a22',name:'Puxada Frontal Aberta Pronada',sub:'',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'a23',name:'Desenvolvimento Sentado',sub:'halter / cabo / máquina',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'a24',name:'Tríceps na Polia',sub:'variação sem. 2',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'a25',name:'Rosca Direta',sub:'barra W ou corda',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'a26',name:'Abdominal Prancha',sub:'',reps:'45 seg – 1 min',series:3,carga:'—',obs:'',doneSeries:0},
+    ],
+    B:[
+      {id:'b21',name:'Cadeira Extensora',sub:'',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'b22',name:'Mesa / Cadeira Flexora',sub:'',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'b23',name:'Leg Press',sub:'',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'b24',name:'Panturrilha em Pé',sub:'',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'b25',name:'Cadeira Adutora',sub:'polia',reps:'12–15 reps (S3: 10–12)',series:3,carga:'',obs:'',doneSeries:0},
+      {id:'b26',name:'Abdominal Prancha',sub:'',reps:'45 seg – 1 min',series:3,carga:'—',obs:'',doneSeries:0},
+    ]
+  },
+  { num:3, dates:'06 a 12/07', cardioA:mkCardio(), cardioB:mkCardio(),
+    A:[
+      {id:'a31',name:'Crucifixo',sub:'halter / cabo / máquina',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a32',name:'Supino Reto',sub:'halter / barra / máquina',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a33',name:'Puxada Frontal Aberta Pronada',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a34',name:'Remada Unilateral',sub:'halter ou máquina',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a35',name:'Desenvolvimento Sentado',sub:'halter / cabo / máquina',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a36',name:'Elevação Lateral com Halter',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a37',name:'Tríceps na Polia',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a38',name:'Tríceps Francês',sub:'halter ou corda',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a39',name:'Rosca Direta',sub:'barra W ou corda',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a310',name:'Abdominal Prancha',sub:'',reps:'45 seg – 1 min',series:4,carga:'—',obs:'',doneSeries:0},
+    ],
+    B:[
+      {id:'b31',name:'Cadeira Extensora',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b32',name:'Mesa / Cadeira Flexora',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b33',name:'Agachamento',sub:'halter / barra / hack squat',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b34',name:'Leg Press',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b35',name:'Panturrilha em Pé',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b36',name:'Cadeira Adutora',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b37',name:'Abdominal Crunch',sub:'',reps:'12–15 / 12–15 / 10–12 / 10–12',series:4,carga:'—',obs:'',doneSeries:0},
+    ]
+  },
+  { num:4, dates:'13 a 19/07', cardioA:mkCardio(), cardioB:mkCardio(),
+    A:[
+      {id:'a41',name:'Crucifixo',sub:'halter / cabo / máquina',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a42',name:'Supino Reto',sub:'halter / barra / máquina',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a43',name:'Puxada Frontal Aberta Pronada',sub:'',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a44',name:'Remada Unilateral',sub:'halter ou máquina',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a45',name:'Desenvolvimento Sentado',sub:'halter / cabo / máquina',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a46',name:'Elevação Lateral com Halter',sub:'',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a47',name:'Tríceps na Polia',sub:'',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a48',name:'Tríceps Francês',sub:'halter ou corda',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a49',name:'Rosca Direta',sub:'barra W ou corda',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'a410',name:'Abdominal Prancha',sub:'',reps:'45 seg – 1 min',series:4,carga:'—',obs:'',doneSeries:0},
+    ],
+    B:[
+      {id:'b41',name:'Cadeira Extensora',sub:'',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b42',name:'Mesa / Cadeira Flexora',sub:'',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b43',name:'Agachamento',sub:'halter / barra / hack squat',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b44',name:'Leg Press',sub:'',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b45',name:'Panturrilha em Pé',sub:'',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b46',name:'Cadeira Adutora',sub:'',reps:'10–12 reps',series:4,carga:'',obs:'',doneSeries:0},
+      {id:'b47',name:'Abdominal Crunch',sub:'',reps:'10–12 reps',series:4,carga:'—',obs:'',doneSeries:0},
+    ]
+  },
+];
+const DEFAULT = { weeks:DEFAULT_WEEKS, sessions:[], currentWeek:1, currentTab:'A' };
+
+// ── REDUCER ──────────────────────────────────────────────────────
+function reducer(state, action) {
+  const s = JSON.parse(JSON.stringify(state));
+  const w = s.weeks.find(w=>w.num===s.currentWeek);
+  switch(action.type) {
+    case 'SET_WEEK': return {...s,currentWeek:action.num};
+    case 'SET_TAB': return {...s,currentTab:action.tab};
+    case 'SET_CARDIO': if(w)w['cardio'+action.tab]=action.val; return s;
+    case 'SET_CARGA':
+      s.weeks.forEach(w=>['A','B'].forEach(t=>{const ex=w[t].find(e=>e.id===action.id);if(ex)ex.carga=action.v;})); return s;
+    case 'SET_OBS_EX':
+      s.weeks.forEach(w=>['A','B'].forEach(t=>{const ex=w[t].find(e=>e.id===action.id);if(ex)ex.obs=action.v;})); return s;
+    case 'TOGGLE_SERIE':
+      s.weeks.forEach(w=>['A','B'].forEach(t=>{const ex=w[t].find(e=>e.id===action.id);if(ex)ex.doneSeries=(ex.doneSeries||0)>action.i?action.i:action.i+1;})); return s;
+    case 'DEL_EX':
+      s.weeks.forEach(w=>{w.A=w.A.filter(e=>e.id!==action.id);w.B=w.B.filter(e=>e.id!==action.id);}); return s;
+    case 'ADD_EX': if(w)w[s.currentTab].push(action.ex); return s;
+    case 'ADD_SESSION':
+      s.sessions.push(action.sess);
+      s.sessions.sort((a,b)=>b.date.localeCompare(a.date)); return s;
+    case 'DEL_SESSION': s.sessions=s.sessions.filter(ss=>ss.id!==action.id); return s;
+    case 'ADD_WEEK': {
+      const prev=s.weeks[s.weeks.length-1];
+      const cl=t=>prev[t].map(e=>({...JSON.parse(JSON.stringify(e)),id:uid(),obs:'',doneSeries:0}));
+      s.weeks.push({num:action.num,dates:action.dates,cardioA:mkCardio(),cardioB:mkCardio(),A:cl('A'),B:cl('B')});
+      s.currentWeek=action.num; return s;
+    }
+    case 'IMPORT': return {...action.data};
+    case 'RESET': return JSON.parse(JSON.stringify(DEFAULT));
+    default: return s;
+  }
+}
+
+// ── COMPONENTES COMPARTILHADOS ───────────────────────────────────
+function Toast({msg,visible}) {
+  return React.createElement('div',{style:{position:'fixed',bottom:90,right:16,background:C.green,color:'#0f0f0f',fontWeight:700,fontSize:13,padding:'9px 16px',borderRadius:8,opacity:visible?1:0,transform:visible?'translateY(0)':'translateY(8px)',transition:'all .2s',pointerEvents:'none',zIndex:999}},msg);
+}
+
+function Modal({open,title,children,onConfirm,onCancel,confirmLabel='Confirmar'}) {
+  if(!open)return null;
+  return React.createElement('div',{style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:300,display:'flex',alignItems:'flex-end',justifyContent:'center'}},
+    React.createElement('div',{style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:'16px 16px 0 0',padding:24,width:'100%',maxWidth:480}},
+      React.createElement('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:700,marginBottom:16}},title),
+      children,
+      React.createElement('div',{style:{display:'flex',gap:8,marginTop:16}},
+        React.createElement('button',{onClick:onCancel,style:{flex:1,padding:11,background:'transparent',border:`1px solid ${C.border}`,color:C.muted,borderRadius:8,cursor:'pointer',fontSize:13}},'Cancelar'),
+        React.createElement('button',{onClick:onConfirm,style:{flex:1,padding:11,background:C.green,border:'none',color:'#0f0f0f',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:13}},confirmLabel)
+      )
+    )
+  );
+}
+
+function MField({label,children}) {
+  return React.createElement('div',{style:{marginBottom:12}},
+    React.createElement('div',{style:{fontSize:11,color:C.muted,fontWeight:600,textTransform:'uppercase',letterSpacing:'.04em',marginBottom:5}},label),
+    children
+  );
+}
+
+const INP = {background:C.s2,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,fontSize:13,padding:'9px 12px',outline:'none',width:'100%',fontFamily:"'Inter',sans-serif"};
+const SECTION_TITLE = {fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700,letterSpacing:'.04em',color:C.muted,textTransform:'uppercase',margin:'20px 0 10px',display:'flex',alignItems:'center',gap:8};
+
+// ── DASHBOARD ────────────────────────────────────────────────────
+function Dashboard({state,onGoTreino}) {
+  const {sessions,weeks,currentWeek} = state;
+  const total = sessions.length;
+  const cardios = sessions.filter(s=>s.cardio).length;
+
+  // streak
+  const dates=[...new Set(sessions.map(s=>s.date))].sort().reverse();
+  let streak=0;
+  if(dates.length){
+    let cur=new Date(today());
+    for(const d of dates){
+      const ds=cur.toISOString().slice(0,10);
+      if(d===ds){streak++;cur.setDate(cur.getDate()-1);}
+      else if(d<ds)break;
+    }
+  }
+  const lastSess=sessions[0];
+  const nextTab=lastSess?(lastSess.tab==='A'?'B':'A'):'A';
+
+  // calendário
+  const dow=new Date().getDay();
+  const monday=new Date();monday.setDate(new Date().getDate()-(dow===0?6:dow-1));
+  const days=['DOM','SEG','TER','QUA','QUI','SEX','SÁB'];
+  const calDays=Array.from({length:7},(_,i)=>{
+    const d=new Date(monday);d.setDate(monday.getDate()+i);
+    const iso=d.toISOString().slice(0,10);
+    const ds=sessions.filter(s=>s.date===iso);
+    return{iso,num:d.getDate(),lbl:days[i],sessions:ds,isToday:iso===today()};
+  });
+
+  // evo
+  const allNames=[...new Set(weeks.flatMap(w=>[...w.A,...w.B].map(e=>e.name)))];
+  const evoItems=allNames.map(name=>{
+    const hist=weeks.flatMap(w=>{
+      const ex=[...w.A,...w.B].find(e=>e.name===name);
+      return ex&&ex.carga&&ex.carga!=='—'&&ex.carga!==''?[{week:w.num,n:getN(ex.carga)||0}]:[];
+    });
+    if(hist.length<2)return null;
+    const mx=Math.max(...hist.map(h=>h.n),1);
+    const delta=hist[hist.length-1].n-hist[0].n;
+    return{name,hist,mx,delta};
+  }).filter(Boolean);
+
+  const e=React.createElement;
+  return e('div',{style:{padding:'16px 16px 0'}},
+    // Hero
+    e('div',{style:{background:`linear-gradient(135deg,${C.gdim},${C.bdim})`,border:`1px solid ${C.border2}`,borderRadius:12,padding:18,marginBottom:14,display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}},
+      e('div',null,
+        e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:28,fontWeight:900,color:C.green,lineHeight:1}},`${streak} dia${streak!==1?'s':''}`),
+        e('div',{style:{fontSize:12,color:C.muted,marginTop:4}},streak>0?'de sequência ativa 🔥':'sem treino hoje ainda'),
+        e('div',{style:{fontSize:12,color:C.muted,marginTop:10}},lastSess?`Último: Treino ${lastSess.tab} em ${fmtDate(lastSess.date)} → Próximo: ${nextTab}`:'Comece com o Treino A 💪')
+      ),
+      e('div',{style:{textAlign:'center',flexShrink:0}},
+        e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:36,fontWeight:900,color:C.green,lineHeight:1}},total),
+        e('div',{style:{fontSize:10,color:C.muted,textTransform:'uppercase',letterSpacing:'.05em'}},'treinos')
+      )
+    ),
+    // Stats
+    e('div',{style:{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:8,marginBottom:20}},
+      [['Sessões',total],['Sem. atual',currentWeek],['Cardios',cardios]].map(([l,v])=>
+        e('div',{key:l,style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'14px 8px',textAlign:'center'}},
+          e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:28,fontWeight:900,color:C.green,lineHeight:1}},v),
+          e('div',{style:{fontSize:10,color:C.muted,marginTop:4,textTransform:'uppercase',letterSpacing:'.04em'}},l)
+        )
+      )
+    ),
+    // Periodização
+    e('div',{style:SECTION_TITLE},e('span',{style:{width:3,height:15,background:C.green,borderRadius:2,display:'inline-block'}}),'Periodização — 4 Semanas'),
+    e('div',{style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:20}},
+      weeks.map(w=>{
+        const ws=sessions.filter(s=>s.week===w.num).length;
+        const isCur=w.num===currentWeek;
+        const pct=Math.min(ws/6*100,100);
+        return e('div',{key:w.num,onClick:()=>onGoTreino(w.num),style:{background:C.surface,border:`2px solid ${isCur?C.green:C.border}`,borderRadius:12,padding:'12px 8px',textAlign:'center',cursor:'pointer',position:'relative'}},
+          isCur&&e('div',{style:{position:'absolute',top:5,right:5,background:C.gdim,color:C.gtext,fontSize:8,fontWeight:700,padding:'2px 4px',borderRadius:3}},'ATUAL'),
+          !isCur&&ws>=2&&e('div',{style:{position:'absolute',top:5,right:5,color:C.dim,fontSize:10}},'✓'),
+          e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:24,fontWeight:900,color:isCur?C.green:C.muted,lineHeight:1}},w.num),
+          e('div',{style:{fontSize:9,color:C.muted,margin:'4px 0'}},w.dates||'a definir'),
+          e('div',{style:{height:3,background:C.s2,borderRadius:2,overflow:'hidden'}},e('div',{style:{height:'100%',width:`${pct}%`,background:C.green,borderRadius:2}})),
+          e('div',{style:{fontSize:9,color:C.muted,marginTop:5}},`${ws} sessões`)
+        );
+      })
+    ),
+    // Calendário
+    e('div',{style:SECTION_TITLE},e('span',{style:{width:3,height:15,background:C.green,borderRadius:2,display:'inline-block'}}),'Esta semana'),
+    e('div',{style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:20}},
+      e('div',{style:{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:2}},
+        calDays.map(day=>{
+          const hasA=day.sessions.some(s=>s.tab==='A'),hasB=day.sessions.some(s=>s.tab==='B');
+          const multi=hasA&&hasB;
+          const bg=multi?C.gdim:hasA?C.gdim:hasB?C.ydim:day.isToday?C.s2:'transparent';
+          const col=multi?C.green:hasA?C.green:hasB?C.yellow:day.isToday?C.blue:C.dim;
+          const bord=day.isToday&&!day.sessions.length?`2px solid ${C.blue}`:'2px solid transparent';
+          const lbl=multi?'A+B':hasA?'A':hasB?'B':day.num;
+          return e('div',{key:day.iso,style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3}},
+            e('div',{style:{fontSize:9,color:C.dim,textTransform:'uppercase',fontWeight:600}},day.lbl),
+            e('div',{style:{width:32,height:32,borderRadius:'50%',background:bg,border:bord,display:'flex',alignItems:'center',justifyContent:'center',fontSize:multi?9:12,fontWeight:700,color:col}},lbl)
+          );
+        })
+      )
+    ),
+    // Histórico
+    e('div',{style:SECTION_TITLE},e('span',{style:{width:3,height:15,background:C.green,borderRadius:2,display:'inline-block'}}),'Histórico'),
+    sessions.length===0?e('div',{style:{color:C.dim,fontSize:13,marginBottom:20}},'Nenhuma sessão ainda. Registre após cada treino!'):
+    e('div',{style:{display:'flex',flexDirection:'column',gap:6,marginBottom:20}},
+      sessions.slice(0,20).map(sess=>{
+        const wk=weeks.find(w=>w.num===sess.week);
+        const exCount=wk?wk[sess.tab].length:0;
+        const cs=sess.cardio&&sess.tipo?sess.tipo:sess.cardio?'feito':null;
+        return e('div',{key:sess.id,style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',display:'flex',alignItems:'center',gap:12}},
+          e('div',{style:{width:30,height:30,borderRadius:7,background:sess.tab==='A'?C.gdim:C.ydim,color:sess.tab==='A'?C.green:C.yellow,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Barlow Condensed',sans-serif",fontSize:14,fontWeight:900,flexShrink:0}},sess.tab),
+          e('div',{style:{flex:1,minWidth:0}},
+            e('div',{style:{fontSize:13,fontWeight:600}},`Treino ${sess.tab} · ${fmtDate(sess.date)}`),
+            e('div',{style:{fontSize:11,color:C.muted,marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},`Sem. ${sess.week} · ${exCount} exercícios${sess.obs?' · '+sess.obs:''}`),
+            cs&&e('div',{style:{fontSize:10,color:C.btext}},`🏃 ${cs}`)
+          )
+        );
+      })
+    ),
+    // Evo
+    evoItems.length>0&&e('div',null,
+      e('div',{style:SECTION_TITLE},e('span',{style:{width:3,height:15,background:C.green,borderRadius:2,display:'inline-block'}}),'Evolução de carga'),
+      e('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8,marginBottom:20}},
+        evoItems.map(({name,hist,mx,delta})=>
+          e('div',{key:name,style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:12}},
+            e('div',{style:{fontSize:11,color:C.muted,marginBottom:8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},name),
+            e('div',{style:{display:'flex',alignItems:'flex-end',gap:2,height:32}},
+              hist.map((h,i)=>e('div',{key:i,style:{flex:1,background:C.green,borderRadius:'2px 2px 0 0',height:`${Math.max(h.n/mx*100,8)}%`,minHeight:3}}))
+            ),
+            e('div',{style:{marginTop:6,fontSize:10,fontWeight:700,padding:'2px 6px',borderRadius:4,display:'inline-block',background:delta>0?C.gdim:C.s2,color:delta>0?C.gtext:C.muted}},delta>0?`▲ +${delta.toFixed(1)}`:'= estável')
+          )
+        )
+      )
+    )
+  );
+}
+
+// ── EXERCISE CARD ────────────────────────────────────────────────
+function ExCard({ex,tab,onCarga,onObs,onToggleSerie,onDelete}) {
+  const acor=tab==='A'?C.green:C.yellow;
+  const e=React.createElement;
+  return e('div',{style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden',marginBottom:8}},
+    e('div',{style:{display:'flex',alignItems:'flex-start',gap:10,padding:'12px 14px 10px'}},
+      e('div',{style:{width:8,height:8,borderRadius:'50%',background:acor,flexShrink:0,marginTop:6}}),
+      e('div',{style:{flex:1,minWidth:0}},
+        e('div',{style:{fontSize:15,fontWeight:600,lineHeight:1.2}},ex.name),
+        ex.sub&&e('div',{style:{fontSize:11,color:C.muted,marginTop:2}},ex.sub),
+        e('a',{href:getLink(ex.name),target:'_blank',rel:'noopener noreferrer',style:{display:'inline-flex',alignItems:'center',gap:3,fontSize:10,color:C.green,textDecoration:'none',marginTop:4,opacity:.75}},'▶ Ver execução')
+      ),
+      e('button',{onClick:onDelete,style:{background:'none',border:'none',color:C.dim,fontSize:16,padding:'2px 4px',cursor:'pointer'}},'✕')
+    ),
+    e('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',borderTop:`1px solid ${C.border}`}},
+      e('div',{style:{padding:'10px 14px',borderRight:`1px solid ${C.border}`}},
+        e('div',{style:{fontSize:10,color:C.dim,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:600,marginBottom:5}},'Reps / Tempo'),
+        e('span',{style:{background:C.s2,border:`1px solid ${C.border}`,borderRadius:4,padding:'3px 8px',fontSize:12,fontWeight:600,color:C.muted}},ex.reps)
+      ),
+      e('div',{style:{padding:'10px 14px'}},
+        e('div',{style:{fontSize:10,color:C.dim,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:600,marginBottom:5}},'Séries'),
+        e('div',{style:{display:'flex',gap:5,flexWrap:'wrap'}},
+          Array.from({length:ex.series||3},(_,i)=>
+            e('div',{key:i,onClick:()=>onToggleSerie(i),style:{width:10,height:10,borderRadius:'50%',background:acor,opacity:(ex.doneSeries||0)>i?1:.2,cursor:'pointer'}})
+          )
+        )
+      )
+    ),
+    e('div',{style:{borderTop:`1px solid ${C.border}`,padding:'10px 14px'}},
+      e('div',{style:{fontSize:10,color:C.dim,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:600,marginBottom:5}},'Carga atual'),
+      e('input',{defaultValue:ex.carga||'',placeholder:'kg / descrição',onBlur:ev=>onCarga(ev.target.value),style:{...INP,fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:700,color:C.gtext,padding:'5px 8px'}})
+    ),
+    e('div',{style:{borderTop:`1px solid ${C.border}`,padding:'10px 14px'}},
+      e('div',{style:{fontSize:10,color:C.dim,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:600,marginBottom:5}},'Anotações'),
+      e('input',{defaultValue:ex.obs||'',placeholder:'senti bem, braços cansaram…',onBlur:ev=>onObs(ev.target.value),style:{background:'transparent',border:'none',borderBottom:`1px dashed ${C.border}`,color:C.muted,fontSize:12,padding:'2px 0',width:'100%',outline:'none'}})
+    )
+  );
+}
+
+// ── CARDIO BLOCK ─────────────────────────────────────────────────
+function CardioBlock({cardio,onChange}) {
+  const opts=['Esteira','Bicicleta ergométrica','Elíptico','Caminhada ao ar livre'];
+  const e=React.createElement;
+  return e('div',{style:{background:C.bdim,border:`1px solid ${C.blue}`,borderRadius:12,padding:14,marginTop:16}},
+    e('div',{style:{fontSize:12,fontWeight:700,color:C.blue,textTransform:'uppercase',letterSpacing:'.05em',marginBottom:6}},'🏃 Cardio pós-treino — obrigatório'),
+    e('div',{style:{fontSize:11,color:C.muted,marginBottom:10}},'Sugestão: 20–30 min em intensidade leve'),
+    e('div',{style:{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}},
+      opts.map(o=>e('div',{key:o,onClick:()=>onChange({...cardio,tipo:o}),style:{background:cardio.tipo===o?'rgba(96,165,250,.2)':'rgba(96,165,250,.07)',border:`1px solid ${cardio.tipo===o?C.blue:'rgba(96,165,250,.2)'}`,borderRadius:6,padding:'5px 9px',fontSize:11,color:cardio.tipo===o?'#fff':C.btext,cursor:'pointer'}},o))
+    ),
+    e('div',{style:{display:'grid',gridTemplateColumns:'1fr 80px',gap:8,marginBottom:10}},
+      e('div',null,
+        e('div',{style:{fontSize:10,color:C.dim,fontWeight:600,textTransform:'uppercase',letterSpacing:'.05em',marginBottom:4}},'Tipo (edite se precisar)'),
+        e('input',{value:cardio.tipo||'',onChange:ev=>onChange({...cardio,tipo:ev.target.value}),placeholder:'Ex: esteira 3%…',style:{...INP,fontSize:12}})
+      ),
+      e('div',null,
+        e('div',{style:{fontSize:10,color:C.dim,fontWeight:600,textTransform:'uppercase',letterSpacing:'.05em',marginBottom:4}},'Min'),
+        e('input',{type:'number',value:cardio.tempo||'',onChange:ev=>onChange({...cardio,tempo:ev.target.value}),placeholder:'25',style:{...INP,fontFamily:"'Barlow Condensed',sans-serif",fontSize:20,fontWeight:700,color:C.blue,textAlign:'center',padding:'5px 8px'}})
+      )
+    ),
+    e('label',{style:{display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.muted,cursor:'pointer'}},
+      e('input',{type:'checkbox',checked:cardio.feito||false,onChange:ev=>onChange({...cardio,feito:ev.target.checked}),style:{accentColor:C.blue,width:15,height:15}}),
+      'Cardio feito ✓'
+    )
+  );
+}
+
+// ── TREINO PAGE ──────────────────────────────────────────────────
+function TreinoPage({state,dispatch,showToast}) {
+  const [showAdd,setShowAdd]=useState(false);
+  const [newName,setNewName]=useState('');
+  const [newReps,setNewReps]=useState('');
+  const [newSer,setNewSer]=useState('3');
+  const [modal,setModal]=useState(null);
+  const [ciTab,setCiTab]=useState(state.currentTab);
+  const [ciDate,setCiDate]=useState(today());
+  const [ciCardio,setCiCardio]=useState('');
+  const [ciObs,setCiObs]=useState('');
+  const [nwNum,setNwNum]=useState('');
+  const [nwDates,setNwDates]=useState('');
+
+  const w=state.weeks.find(wk=>wk.num===state.currentWeek);
+  const tab=state.currentTab;
+  const exs=w?w[tab]:[];
+  const cardio=w?(w['cardio'+tab]||{feito:false,tipo:'',tempo:''}):({feito:false,tipo:'',tempo:''});
+  const wSessions=state.sessions.filter(s=>s.week===state.currentWeek).sort((a,b)=>a.date.localeCompare(b.date));
+
+  // evo
+  const names=[...new Set(state.weeks.flatMap(wk=>wk[tab].map(e=>e.name)))];
+  const evoItems=names.map(name=>{
+    const hist=state.weeks.map(wk=>{const ex=wk[tab].find(e=>e.name===name);return{week:wk.num,carga:ex?ex.carga:''};}).filter(r=>r.carga&&r.carga!=='—'&&r.carga!=='');
+    if(!hist.length)return null;
+    const mx=Math.max(...hist.map(r=>getN(r.carga)||0),1);
+    const f=getN(hist[0].carga),l=getN(hist[hist.length-1].carga);
+    return{name,hist,mx,delta:(l&&f)?+(l-f).toFixed(1):0};
+  }).filter(Boolean);
+
+  function confirmSession(){
+    if(!ciDate)return;
+    dispatch({type:'ADD_SESSION',sess:{id:uid(),date:ciDate,tab:ciTab,week:state.currentWeek,cardio:!!ciCardio,tipo:ciCardio,tempo:'',obs:ciObs}});
+    setModal(null);setCiDate(today());setCiCardio('');setCiObs('');
+    showToast('✓ Sessão registrada!');
+  }
+  function confirmNewWeek(){
+    const num=parseInt(nwNum);if(!num)return;
+    dispatch({type:'ADD_WEEK',num,dates:nwDates});
+    setModal(null);showToast('✓ Semana adicionada!');
+  }
+  function addEx(){
+    if(!newName.trim())return;
+    dispatch({type:'ADD_EX',ex:{id:uid(),name:newName.trim(),sub:'',reps:newReps.trim()||'12–15 reps',series:parseInt(newSer)||3,carga:'',obs:'',doneSeries:0}});
+    setNewName('');setNewReps('');setNewSer('3');setShowAdd(false);
+    showToast('✓ Exercício adicionado');
+  }
+
+  const e=React.createElement;
+  return e('div',{style:{padding:'16px 16px 0'}},
+    // Week scroll
+    e('div',{style:{display:'flex',gap:6,overflowX:'auto',paddingBottom:10,marginBottom:14,scrollbarWidth:'none'}},
+      state.weeks.map(wk=>e('button',{key:wk.num,onClick:()=>dispatch({type:'SET_WEEK',num:wk.num}),style:{background:wk.num===state.currentWeek?C.green:C.surface,border:`1.5px solid ${wk.num===state.currentWeek?C.green:C.border}`,color:wk.num===state.currentWeek?'#0f0f0f':C.muted,padding:'7px 16px',borderRadius:20,fontSize:13,fontWeight:600,cursor:'pointer',flexShrink:0}},`Semana ${wk.num}`)),
+      e('button',{onClick:()=>{setNwNum(String(Math.max(...state.weeks.map(w=>w.num))+1));setNwDates('');setModal({type:'newWeek'});},style:{background:'transparent',border:`1.5px dashed ${C.border}`,color:C.dim,padding:'7px 14px',borderRadius:20,fontSize:13,cursor:'pointer',flexShrink:0}},'+ Semana')
+    ),
+    // Header
+    e('div',{style:{marginBottom:14}},
+      e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:26,fontWeight:900,lineHeight:1}},`Semana ${state.currentWeek} / 4`),
+      w?.dates&&e('div',{style:{fontSize:12,color:C.muted,marginTop:3}},`📅 ${w.dates}`),
+      wSessions.length>0&&e('div',{style:{marginTop:10,display:'flex',flexDirection:'column',gap:6}},
+        wSessions.map(sess=>e('div',{key:sess.id,style:{display:'flex',alignItems:'center',gap:10,background:C.s2,border:`1px solid ${C.border}`,borderRadius:8,padding:'8px 12px'}},
+          e('div',{style:{width:28,height:28,borderRadius:6,background:sess.tab==='A'?C.gdim:C.ydim,color:sess.tab==='A'?C.green:C.yellow,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:900,flexShrink:0}},sess.tab),
+          e('div',{style:{flex:1,minWidth:0}},
+            e('div',{style:{fontSize:13,fontWeight:600}},fmtDate(sess.date)),
+            e('div',{style:{fontSize:11,color:C.muted,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},`Treino ${sess.tab}${sess.cardio&&sess.tipo?' · 🏃 '+sess.tipo:sess.cardio?' · 🏃 Cardio':''}${sess.obs?' · '+sess.obs:''}`)
+          ),
+          e('button',{onClick:()=>{dispatch({type:'DEL_SESSION',id:sess.id});showToast('Sessão removida');},style:{background:'none',border:'none',color:C.dim,fontSize:14,padding:'2px 6px',cursor:'pointer',borderRadius:4}},'✕')
+        ))
+      ),
+      e('button',{onClick:()=>{setCiTab(tab);setModal({type:'session'});},style:{marginTop:10,width:'100%',padding:10,background:C.gdim,border:`1.5px solid ${C.green}`,color:C.gtext,borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer'}},'+ Registrar sessão de treino')
+    ),
+    // Regras
+    e('div',{style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:'12px 14px',marginBottom:16,display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}},
+      [['1','Técnica primeiro','2–3s cada fase'],['2','Sem impulso','Movimento fluido'],['3','Carga moderada','Sentir o músculo'],['4','Descanso','1–2 min séries'],['5','Cardio','20–30 min pós'],['6','Respiração','Expira na força']].map(([n,t,d])=>
+        e('div',{key:n,style:{display:'flex',gap:6}},
+          e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:18,fontWeight:900,color:C.green,lineHeight:1,flexShrink:0}},n),
+          e('div',{style:{fontSize:11,color:C.muted,lineHeight:1.3}},e('strong',{style:{color:C.text,fontWeight:600,display:'block'}},t),d)
+        )
+      )
+    ),
+    // A/B tabs
+    e('div',{style:{display:'flex',gap:6,marginBottom:14}},
+      ['A','B'].map(t=>e('button',{key:t,onClick:()=>dispatch({type:'SET_TAB',tab:t}),style:{flex:1,padding:'11px 8px',background:tab===t?(t==='A'?C.gdim:C.ydim):C.surface,border:`2px solid ${tab===t?(t==='A'?C.green:C.yellow):C.border}`,borderRadius:12,fontFamily:"'Barlow Condensed',sans-serif",fontSize:15,fontWeight:700,color:tab===t?(t==='A'?C.green:C.yellow):C.muted,textAlign:'center',cursor:'pointer'}},
+        `TREINO ${t}`,e('span',{style:{display:'block',fontFamily:"'Inter',sans-serif",fontSize:10,fontWeight:500,color:C.muted,marginTop:2}},t==='A'?'Membros Superiores':'Inferiores + Abdômen')
+      ))
+    ),
+    // Exercícios
+    exs.map(ex=>e(ExCard,{key:ex.id,ex,tab,onCarga:v=>dispatch({type:'SET_CARGA',id:ex.id,v}),onObs:v=>dispatch({type:'SET_OBS_EX',id:ex.id,v}),onToggleSerie:i=>dispatch({type:'TOGGLE_SERIE',id:ex.id,i}),onDelete:()=>dispatch({type:'DEL_EX',id:ex.id})})),
+    // Add
+    e('button',{onClick:()=>setShowAdd(!showAdd),style:{display:'flex',alignItems:'center',justifyContent:'center',gap:8,width:'100%',padding:11,background:C.surface,border:`1.5px dashed ${C.border}`,borderRadius:12,color:C.dim,fontSize:13,fontWeight:600,cursor:'pointer',marginBottom:8}},'＋ Adicionar exercício'),
+    showAdd&&e('div',{style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:14,display:'flex',flexDirection:'column',gap:8}},
+      e('input',{value:newName,onChange:ev=>setNewName(ev.target.value),placeholder:'Nome do exercício',style:INP}),
+      e('div',{style:{display:'flex',gap:8}},
+        e('input',{value:newReps,onChange:ev=>setNewReps(ev.target.value),placeholder:'Reps/tempo',style:{...INP,flex:2}}),
+        e('input',{type:'number',value:newSer,onChange:ev=>setNewSer(ev.target.value),placeholder:'Séries',style:{...INP,width:80}})
+      ),
+      e('button',{onClick:addEx,style:{background:C.green,border:'none',color:'#0f0f0f',borderRadius:8,padding:'9px 16px',fontWeight:700,fontSize:13,cursor:'pointer'}},'Adicionar')
+    ),
+    // Cardio
+    e(CardioBlock,{cardio,onChange:val=>dispatch({type:'SET_CARDIO',tab,val})}),
+    // Evo
+    evoItems.length>0&&e('div',null,
+      e('div',{style:{...SECTION_TITLE,marginTop:24}},e('span',{style:{width:3,height:15,background:C.green,borderRadius:2,display:'inline-block'}}),'Evolução de carga'),
+      e('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:8,marginBottom:20}},
+        evoItems.map(({name,hist,mx,delta})=>
+          e('div',{key:name,style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:12}},
+            e('div',{style:{fontSize:11,color:C.muted,marginBottom:8,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}},name),
+            hist.slice(-4).map((h,i)=>{const n=getN(h.carga);const pct=n?Math.round(n/mx*100):5;return e('div',{key:i,style:{display:'flex',alignItems:'center',gap:6,marginBottom:3}},e('div',{style:{fontSize:10,color:C.dim,width:24,flexShrink:0}},`S${h.week}`),e('div',{style:{flex:1,height:5,background:C.s2,borderRadius:3,overflow:'hidden'}},e('div',{style:{height:'100%',width:`${pct}%`,background:C.green,borderRadius:3}})),e('div',{style:{fontSize:10,fontWeight:600,width:40,textAlign:'right',flexShrink:0}},h.carga));}),
+            e('div',{style:{marginTop:6,fontSize:10,fontWeight:700,padding:'2px 6px',borderRadius:4,display:'inline-block',background:delta>0?C.gdim:C.s2,color:delta>0?C.gtext:C.muted}},delta>0?`▲ +${delta}`:'= estável')
+          )
+        )
+      )
+    ),
+    // Modal sessão
+    e(Modal,{open:modal?.type==='session',title:'Registrar sessão de treino',onConfirm:confirmSession,onCancel:()=>setModal(null)},
+      e(MField,{label:'Tipo de treino'},
+        e('div',{style:{display:'flex',gap:8}},
+          ['A','B'].map(t=>e('button',{key:t,onClick:()=>setCiTab(t),type:'button',style:{flex:1,padding:10,borderRadius:8,border:`2px solid ${ciTab===t?(t==='A'?C.green:C.yellow):C.border}`,background:ciTab===t?(t==='A'?C.gdim:C.ydim):C.s2,color:ciTab===t?(t==='A'?C.gtext:C.ytext):C.muted,fontWeight:700,fontSize:14,cursor:'pointer',fontFamily:"'Barlow Condensed',sans-serif"}},
+            `TREINO ${t}`,e('span',{style:{display:'block',fontSize:10,fontWeight:400,color:C.muted}},t==='A'?'Membros Superiores':'Inferiores + Abdômen')
+          ))
+        )
+      ),
+      e(MField,{label:'Data do treino'},e('input',{type:'date',value:ciDate,max:today(),onChange:ev=>setCiDate(ev.target.value),style:INP})),
+      e(MField,{label:'Cardio feito? (tipo e duração)'},e('input',{value:ciCardio,onChange:ev=>setCiCardio(ev.target.value),placeholder:'Ex: Esteira 25 min, Bike 20 min…',style:INP})),
+      e(MField,{label:'Observação (opcional)'},e('input',{value:ciObs,onChange:ev=>setCiObs(ev.target.value),placeholder:'Ex: boa disposição, treino pesado…',style:INP}))
+    ),
+    // Modal nova semana
+    e(Modal,{open:modal?.type==='newWeek',title:'Nova Semana',onConfirm:confirmNewWeek,onCancel:()=>setModal(null)},
+      e(MField,{label:'Semana nº'},e('input',{type:'number',value:nwNum,onChange:ev=>setNwNum(ev.target.value),min:1,max:20,style:INP})),
+      e(MField,{label:'Período'},e('input',{value:nwDates,onChange:ev=>setNwDates(ev.target.value),placeholder:'ex: 20/07 a 26/07',style:INP}))
+    )
+  );
+}
+
+// ── CONFIG PAGE ──────────────────────────────────────────────────
+function ConfigPage({state,dispatch,showToast}) {
+  const sess=state.sessions.length;
+  const cargas=state.weeks.flatMap(w=>[...w.A,...w.B]).filter(e=>e.carga&&e.carga!=='—'&&e.carga!=='').length;
+  const [resetConfirm,setResetConfirm]=useState(false);
+  const fileRef=useRef();
+
+  function exportData(){
+    const json=JSON.stringify(state,null,2);
+    const blob=new Blob([json],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const now=new Date();
+    const stamp=`${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+    const a=document.createElement('a');a.href=url;a.download=`treino-backup-${stamp}.json`;
+    document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    showToast('✓ Backup exportado!');
+  }
+  function importData(ev){
+    const file=ev.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const parsed=JSON.parse(e.target.result);
+        if(!parsed.weeks||!Array.isArray(parsed.weeks))throw new Error('Formato inválido');
+        parsed.sessions=(parsed.sessions||[]).map(s=>s.id?s:{...s,id:uid()});
+        dispatch({type:'IMPORT',data:parsed});
+        showToast('✓ Dados restaurados!');
+      }catch(err){alert('Erro ao importar: '+err.message);}
+    };
+    reader.readAsText(file);ev.target.value='';
+  }
+
+  const e=React.createElement;
+  const Btn=({color,children,onClick,red})=>e('button',{onClick,style:{flexShrink:0,padding:'9px 14px',border:red?`1px solid ${C.red}`:'none',borderRadius:8,background:red?C.rdim:color,color:red?C.red:'#0f0f0f',fontSize:13,fontWeight:700,cursor:'pointer'}},children);
+  const Card=({icon,title,sub,action})=>e('div',{style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,display:'flex',alignItems:'center',gap:12,marginBottom:8}},e('div',{style:{fontSize:24,flexShrink:0}},icon),e('div',{style:{flex:1}},e('div',{style:{fontSize:14,fontWeight:600,marginBottom:3}},title),e('div',{style:{fontSize:11,color:C.muted,lineHeight:1.4}},sub)),action);
+  const SecTitle=({children})=>e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:16,fontWeight:700,letterSpacing:'.03em',margin:'20px 0 8px',display:'flex',alignItems:'center',gap:8}},e('span',{style:{width:3,height:16,background:C.green,borderRadius:2,display:'inline-block'}}),children);
+
+  return e('div',{style:{padding:'16px 16px 0'}},
+    e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:22,fontWeight:900,marginBottom:20}},'Configurações'),
+    e(SecTitle,null,'💾 Backup dos dados'),
+    e('div',{style:{fontSize:13,color:C.muted,lineHeight:1.5,marginBottom:12}},'Seus dados ficam salvos neste navegador. Exporte regularmente como segurança extra.'),
+    e(Card,{icon:'⬇️',title:'Exportar backup',sub:'Baixa um arquivo .json com todos os seus dados — sessões, cargas e anotações.',action:e(Btn,{color:C.green,onClick:exportData},'Exportar')}),
+    e(Card,{icon:'⬆️',title:'Importar backup',sub:'Restaura dados de um .json exportado. Substitui todos os dados atuais.',action:e('div',null,e(Btn,{color:C.blue,onClick:()=>fileRef.current.click()},'Importar'),e('input',{ref:fileRef,type:'file',accept:'.json',style:{display:'none'},onChange:importData}))}),
+    e(SecTitle,null,'ℹ️ Status'),
+    e('div',{style:{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:8}},
+      e('div',{style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}},
+        [['Sessões',sess],['Semanas',state.weeks.length],['Cargas salvas',cargas],['Semana atual',state.currentWeek]].map(([l,v])=>
+          e('div',{key:l},e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:26,fontWeight:900,color:C.green,lineHeight:1}},v),e('div',{style:{fontSize:11,color:C.muted}},l))
+        )
+      )
+    ),
+    e(SecTitle,null,'📱 Atalho na tela inicial (iPhone)'),
+    [['1','Abra esta URL no Safari do iPhone'],['2','Toque em □↑ (compartilhar) na barra inferior'],['3','Role e toque em "Adicionar à Tela de Início"'],['4','Nomeie "Treino JB" e confirme']].map(([n,t])=>
+      e('div',{key:n,style:{display:'flex',alignItems:'center',gap:10,background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:'10px 14px',marginBottom:6,fontSize:13}},
+        e('div',{style:{width:22,height:22,borderRadius:'50%',background:C.green,color:'#0f0f0f',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Barlow Condensed',sans-serif",fontSize:13,fontWeight:900,flexShrink:0}},n),t
+      )
+    ),
+    e('div',{style:{marginTop:24}},
+      e(Card,{icon:'🗑️',title:'Resetar todos os dados',sub:'Apaga tudo e volta ao estado inicial. Irreversível sem backup.',action:e(Btn,{red:true,onClick:()=>setResetConfirm(true)},'Resetar')})
+    ),
+    e(Modal,{open:resetConfirm,title:'Resetar todos os dados',confirmLabel:'Sim, resetar',onConfirm:()=>{dispatch({type:'RESET'});setResetConfirm(false);showToast('Dados resetados');},onCancel:()=>setResetConfirm(false)},
+      e('p',{style:{color:C.muted,fontSize:14,lineHeight:1.6}},'Apaga ',e('strong',{style:{color:C.red}},'todos os treinos, sessões e cargas'),'. Faça um Export antes.')
+    )
+  );
+}
+
+// ── APP ──────────────────────────────────────────────────────────
+function App() {
+  const [state,dispatch]=useReducer(reducer,null,()=>loadState()||JSON.parse(JSON.stringify(DEFAULT)));
+  const [page,setPage]=useState('dash');
+  const [toast,setToast]=useState({msg:'',visible:false});
+  const toastTimer=useRef(null);
+
+  // Auto-save
+  useEffect(()=>{saveState(state);},[state]);
+
+  function showToast(msg){
+    clearTimeout(toastTimer.current);
+    setToast({msg,visible:true});
+    toastTimer.current=setTimeout(()=>setToast(t=>({...t,visible:false})),2000);
+  }
+  function goTreino(num){dispatch({type:'SET_WEEK',num});setPage('treino');}
+
+  const e=React.createElement;
+  const NAV=[['dash','📊','Dashboard'],['treino','💪','Treino'],['config','⚙️','Config']];
+
+  return e('div',{style:{background:C.bg,minHeight:'100vh',color:C.text,fontFamily:"'Inter',sans-serif",fontSize:14,paddingBottom:80}},
+    // Header
+    e('div',{style:{position:'sticky',top:0,zIndex:100,background:'rgba(15,15,15,0.97)',borderBottom:`1px solid ${C.border}`,padding:'12px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'}},
+      e('div',{style:{display:'flex',alignItems:'center',gap:10}},
+        e('div',{style:{width:34,height:34,background:C.green,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontFamily:"'Barlow Condensed',sans-serif",fontWeight:900,fontSize:17,color:'#0f0f0f',flexShrink:0}},'JB'),
+        e('div',null,
+          e('div',{style:{fontFamily:"'Barlow Condensed',sans-serif",fontSize:18,fontWeight:700,letterSpacing:'.02em',lineHeight:1}},'Treino Adaptativo'),
+          e('div',{style:{fontSize:11,color:C.muted,marginTop:1}},'Metodologia Julio Balestrin')
+        )
+      ),
+      e('div',{style:{background:C.gdim,color:C.gtext,border:`1px solid ${C.green}`,padding:'4px 10px',borderRadius:20,fontSize:11,fontWeight:700,letterSpacing:'.05em'}},`SEM. ${state.currentWeek}`)
+    ),
+    // Pages
+    page==='dash'&&e(Dashboard,{state,onGoTreino:goTreino}),
+    page==='treino'&&e(TreinoPage,{state,dispatch,showToast}),
+    page==='config'&&e(ConfigPage,{state,dispatch,showToast}),
+    // Bottom nav
+    e('nav',{style:{position:'fixed',bottom:0,left:0,right:0,zIndex:200,background:C.surface,borderTop:`1px solid ${C.border}`,display:'flex'}},
+      NAV.map(([p,icon,label])=>e('button',{key:p,onClick:()=>setPage(p),style:{flex:1,display:'flex',flexDirection:'column',alignItems:'center',padding:'10px 4px 8px',gap:4,background:'none',border:'none',color:page===p?C.green:C.muted,fontSize:10,fontWeight:600,letterSpacing:'.04em',textTransform:'uppercase',cursor:'pointer'}},
+        e('span',{style:{fontSize:20,lineHeight:1}},icon),label
+      ))
+    ),
+    e(Toast,{msg:toast.msg,visible:toast.visible})
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>
